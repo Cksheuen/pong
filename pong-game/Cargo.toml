@@ -1,0 +1,21 @@
+[package]
+name = "pong"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.15.0"
+crossbeam-channel = "0.5.15"
+tokio = { version = "1.44.2", features = ["full"] }
+async-tungstenite = { version = "0.29", features = ["tokio-native-tls"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+tokio-native-tls = "0.3.1"
+futures-util = "0.3"
+native-tls = "0.2.14"
+openssl = { version = "0.10.72", features = ["vendored"] }
+rustls = { version = "0.23.26" }
+rustls-pemfile = "2.2.0"
+tokio-rustls = "0.26.2"
+anyhow = "1.0.98"
+warp = { version = "0.3.7", features = ["tls"] }
+bevy_rapier3d = { version = "0.29.0", features = [ "simd-stable", "debug-render-3d" ] }
