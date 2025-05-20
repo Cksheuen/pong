@@ -1,0 +1,15 @@
+{
+  "name": "pong",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm dev:controller & pnpm dev:game",
+    "dev:controller": "cd pong-controller && pnpm dev --host",
+    "dev:game": "cd pong-game && cargo run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.8.1"
+}

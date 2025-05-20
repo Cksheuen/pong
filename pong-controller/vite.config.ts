@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import UnoCSS from 'unocss/vite'
 import fs from 'fs'
+import dotenv from 'dotenv'
+
+dotenv.config()
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -11,8 +14,8 @@ export default defineConfig({
   ],
   server: {
     https: {
-      key: fs.readFileSync('./keys/server.key'),
-      cert: fs.readFileSync('./keys/server.crt'),
+      key: fs.readFileSync(process.env.SSL_KEY_PATH!),
+      cert: fs.readFileSync(process.env.SSL_CERT_PATH!),
     },
     host: 'dev.local',
     port: 5173,

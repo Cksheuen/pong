@@ -1,16 +1,15 @@
 use std::f32::consts::PI;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use bevy::{
-    ecs::observer::Trigger,
     prelude::*,
     render::{
         camera,
         mesh::{Mesh, Mesh3d, VertexAttributeValues},
     },
-    scene::{SceneInstance, SceneInstanceReady, SceneRoot},
+    scene::SceneRoot,
 };
+use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use bevy_rapier3d::prelude::*;
 
 pub mod command_handler;
@@ -64,6 +63,22 @@ enum CameraComponent {
 #[derive(Component)]
 struct MoveSpeedText;
 
+#[derive(Resource)]
+pub struct LaunchState {
+    pub launched: bool,
+}
+
+impl Default for LaunchState {
+    fn default() -> Self {
+        LaunchState { launched: false }
+    }
+}
+
+#[derive(Resource, Default)]
+struct BallTableCollisionCount {
+    pub count: u32,
+}
+
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -73,9 +88,12 @@ fn main() {
     App::new()
         .insert_resource(WsRuntime(rt))
         .insert_resource(RacketCommandQueue(command_queue))
+        .insert_resource(LaunchState::default())
+        .insert_resource(BallTableCollisionCount::default())
         .add_plugins(DefaultPlugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(RapierDebugRenderPlugin::default())
+        .add_event::<CollisionEvent>()
         .add_systems(
             Startup,
             (
@@ -84,7 +102,14 @@ fn main() {
                 controller_server::start_controller_server,
             ),
         )
-        .add_systems(Update, command_handler::apply_racket_commands)
+        .add_systems(
+            Update,
+            (
+                command_handler::apply_racket_commands,
+                collision_event_system.in_set(PhysicsSet::SyncBackend),
+                control_ball_system,
+            ),
+        )
         .run();
 }
 
@@ -97,7 +122,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, windows: Query<
     let pos = vec![
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(1.0, 1.0, 0.0),
-        Vec3::new(0.75, 1.0, 0.0),
+        Vec3::new(0.95, 1.05, 0.0),
     ];
     let rotation = vec![
         Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, 0.0),
@@ -121,11 +146,14 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, windows: Query<
 
         let mut entity = commands.spawn((
             SceneRoot(gltf_handle),
-            Transform {
+            Transform::from_xyz(pos[i].x, pos[i].y, pos[i].z)
+                .with_rotation(rotation[i])
+                .with_scale(Vec3::splat(scale_num)),
+            /* Transform {
                 translation: pos[i],
                 rotation: rotation[i],
                 scale: Vec3::splat(scale_num),
-            },
+            }, */
         ));
 
         // let com = components[i].clone();
@@ -134,94 +162,62 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, windows: Query<
                 entity.insert((
                     Table,
                     RigidBody::Fixed,
+                    ActiveEvents::COLLISION_EVENTS,
                     Collider::cuboid(1.0, 0.75, 1.0),
                     Ccd { enabled: true },
+                    Restitution {
+                        coefficient: 0.9, // 让桌子也有高弹性
+                        combine_rule: CoefficientCombineRule::Max,
+                    },
                 ));
             }
             Some(ModelComponent::Rkt) => {
                 entity.insert((
                     Racket,
                     RigidBody::KinematicPositionBased,
+                    ActiveEvents::COLLISION_EVENTS,
                     Collider::cuboid(0.05, 0.01, 0.1),
                     Ccd { enabled: true },
+                    Restitution {
+                        coefficient: 0.3, 
+                        combine_rule: CoefficientCombineRule::Max,
+                    },
                 ));
             }
             Some(ModelComponent::Bal) => {
                 entity.insert((
                     Ball,
                     RigidBody::Dynamic,
+                    Velocity::zero(),
+                    GravityScale(0.0),
+                    ActiveEvents::COLLISION_EVENTS,
                     Collider::ball(0.01),
                     Ccd { enabled: true },
-                    Restitution::coefficient(0.8),
-                    Friction::coefficient(0.2),
+                    Restitution {
+                        coefficient: 0.4, // 从 0.8 降到 0.4
+                        combine_rule: CoefficientCombineRule::Average,
+                    },
+                    Friction {
+                        coefficient: 0.6,
+                        combine_rule: CoefficientCombineRule::Average,
+                    },
+                    Damping {
+                        linear_damping: 0.2, // 默认 0.0，设为 0.1–0.3 让速度自然衰减
+                        angular_damping: 0.1,
+                    },
                 ));
             }
             _ => {}
         };
-
-        /* entity.observe(
-            move |trigger: Trigger<SceneInstanceReady>,
-                      mut cmds: Commands,
-                      meshes: Res<Assets<Mesh>>,
-                      query: Query<(Entity, &Mesh3d), Without<Collider>>,
-                      instances: Query<&SceneInstance>|
-                {
-                    // 1. 直接读取字段，不是方法
-                    // let instance_id: SceneInstance = trigger.event().instance_id;
-                    let instance_id = trigger.event().instance_id;
-
-                    // 2. 直接用 query.iter()，不要传 &cmds.world :contentReference[oaicite:0]{index=0}
-                    for (entity, mesh3d) in query.iter() {
-                        // 3. 比较时，将 si（&SceneInstance）解引用后与 instance_id 比较
-                        if let Ok(si) = instances.get(entity) {
-                            if si.deref() != &instance_id {
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
-
-                        // 4. 拿到 Mesh，并提取顶点生成凸包
-                        if let Some(mesh) = meshes.get(&mesh3d.0) {
-                            if let Some(VertexAttributeValues::Float32x3(pos)) =
-                                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-                            {
-                                let points: Vec<Vec3> = pos.iter().map(|&p| Vec3::from(p)).collect();
-                                if let Some(collider) = Collider::convex_hull(&points) {
-                                    let mut ec = cmds.entity(entity);
-                                    ec.insert(collider);
-
-                                    // 5. 根据捕获的 com 插入对应刚体
-                                    match com.clone() {
-                                        Some(ModelComponent::Tbl) => {
-                                            ec.insert(RigidBody::Fixed);
-                                            println!("table");
-                                        }
-                                        Some(ModelComponent::Bal) => {
-                                            ec.insert((
-                                                RigidBody::Dynamic,
-                                                Ccd { enabled: true },
-                                                Restitution::coefficient(0.8),
-                                                Friction::coefficient(0.2),
-                                            ));
-                                            println!("ball");
-                                        }
-                                        Some(ModelComponent::Rkt) => {
-                                            ec.insert(RigidBody::KinematicPositionBased);
-                                            println!("racket");
-                                        }
-                                        None => {}
-                                    }
-                                }
-                                println!("instance_id: {:?}", instance_id);
-                                println!("entity: {:?}", entity);
-                                println!("mesh3d: {:?}", mesh3d);
-                            }
-                        }
-                    }
-                },
-        ); */
     }
+
+    commands.spawn((
+        Transform::from_xyz(0.0, 0.75, 0.0),
+        RigidBody::Fixed,
+        ActiveEvents::COLLISION_EVENTS,
+        Collider::cuboid(0.1, 0.1, 1.0),
+        Ccd { enabled: true },
+    ));
 
     // light
     commands.spawn((
@@ -274,6 +270,90 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, windows: Query<
         },
         MoveSpeedText,
     ));
+}
+
+fn control_ball_system(
+    mut commands: Commands,
+    mut query: Query<
+        (
+            Entity,
+            &mut Transform,
+            Option<&RigidBody>,
+            Option<&GravityScale>,
+        ),
+        (With<Ball>, Without<Racket>),
+    >,
+    mut launch_state: ResMut<LaunchState>,
+    mut counter: ResMut<BallTableCollisionCount>,
+    racket_query: Query<&Transform, With<Racket>>,
+) {
+    let racket_transform = match racket_query.get_single() {
+        Ok(t) => t,
+        Err(_) => return, // 没有找到 Racket，跳过
+    };
+    for (entity, mut transform, rb, gs) in query.iter_mut() {
+        if launch_state.launched {
+            // 发射，设置为 Dynamic，由物理引擎接管
+            if gs.unwrap().0 == 0.0 {
+                commands.entity(entity).insert(GravityScale(1.0));
+            }
+        } else {
+            // transform.translation.z = racket_transform.translation.z + transform.rotation.y * 0.05;
+            // 未发射，保持固定高度，但允许参与碰撞
+            transform.translation.y = 1.04;
+            // 如果不是 Kinematic，设置为 Kinematic
+            if !matches!(rb, Some(RigidBody::KinematicPositionBased)) {
+                commands
+                    .entity(entity)
+                    .insert(GravityScale(0.0))
+                    .remove::<Velocity>(); // 清除可能残留的速度
+            }
+        }
+        if transform.translation.x > 2.0
+            || transform.translation.x < -2.0
+            || transform.translation.y > 2.0
+            || transform.translation.y < 0.0
+            || transform.translation.z > 2.0
+            || transform.translation.z < -2.0 || counter.count > 2
+        {
+            // 球超出边界，重置位置
+            transform.translation = Vec3::new(0.95, 1.05, 0.0);
+            commands
+                .entity(entity)
+                .insert(GravityScale(0.0))
+                .insert(Velocity::zero());
+            launch_state.launched = false;
+            counter.count = 0;
+        }
+    }
+}
+
+fn collision_event_system(
+    mut collision_events: EventReader<CollisionEvent>,
+    colliders: Query<(Entity, &Collider)>,
+    racket_q: Query<&Racket>,
+    ball_q: Query<&Ball>,
+    table_q: Query<(), With<Table>>,
+    mut launch_state: ResMut<LaunchState>,
+    mut counter: ResMut<BallTableCollisionCount>,
+) {
+    for event in collision_events.read() {
+        if let CollisionEvent::Started(e1, e2, _) = event {
+            let hit = (racket_q.get(*e1).is_ok() && ball_q.get(*e2).is_ok())
+                || (racket_q.get(*e2).is_ok() && ball_q.get(*e1).is_ok());
+            if hit {
+                launch_state.launched = true;
+                counter.count = 0;
+            }
+
+            let is_ball_table = (ball_q.get(*e1).is_ok() && table_q.get(*e2).is_ok())
+                || (ball_q.get(*e2).is_ok() && table_q.get(*e1).is_ok());
+            if is_ball_table {
+                counter.count += 1;
+                info!("Ball-Table 碰撞次数：{}", counter.count);
+            }
+        }
+    }
 }
 
 fn add_convex_colliders(

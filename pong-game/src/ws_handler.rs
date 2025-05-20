@@ -13,12 +13,20 @@ use tokio_rustls::{TlsAcceptor, rustls};
 use crate::{RacketCommandQueue, RacketTransformCommand, WsRuntime};
 use anyhow::{Context, Result};
 
+use dotenv::dotenv;
+use std::env;
+
 pub fn start_websocket_server(rt: Res<WsRuntime>, command_queue: Res<RacketCommandQueue>) {
     let command_queue = command_queue.clone();
     rt.0.spawn(async move {
+
+        dotenv().ok();
+
+        let cert_url = env::var("SSL_CERT_PATH").expect("CERT_URL 环境变量未设置");
+        let key_url = env::var("SSL_KEY_PATH").expect("KEY_URL 环境变量未设置");
         // 1. 加载证书与私钥
-        let certs = load_certs("server.crt").unwrap();
-        let key = load_key("server.key").unwrap();
+        let certs = load_certs(&cert_url).unwrap();
+        let key = load_key(&key_url).unwrap();
 
         let config = ServerConfig::builder()
             .with_no_client_auth()
