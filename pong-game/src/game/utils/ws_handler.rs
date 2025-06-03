@@ -10,7 +10,7 @@ use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, rustls};
 
-use crate::{RacketCommandQueue, RacketTransformCommand, WsRuntime};
+use crate::game::utils::{CommandDataType, RacketCommandQueue, RacketTransformCommand, WsRuntime};
 use anyhow::{Context, Result};
 
 use dotenv::dotenv;
@@ -19,7 +19,6 @@ use std::env;
 pub fn start_websocket_server(rt: Res<WsRuntime>, command_queue: Res<RacketCommandQueue>) {
     let command_queue = command_queue.clone();
     rt.0.spawn(async move {
-
         dotenv().ok();
 
         let cert_url = env::var("SSL_CERT_PATH").expect("CERT_URL 环境变量未设置");
@@ -96,6 +95,7 @@ pub fn start_websocket_server(rt: Res<WsRuntime>, command_queue: Res<RacketComma
             });
         }
     });
+    println!("✅ WebSocket 服务器已启动");
 }
 
 // 加载 X.509 PEM 格式证书
@@ -132,8 +132,6 @@ fn load_key(path: &str) -> Result<PrivateKeyDer<'static>> {
         .map(Into::into)
         .ok_or_else(|| anyhow::anyhow!("未找到有效的私钥"))
 }
-
-use crate::CommandDataType;
 
 fn parse_transform_command(text: &str) -> Option<RacketTransformCommand> {
     // 简单解析：x,y,z;rx,ry,rz,rw

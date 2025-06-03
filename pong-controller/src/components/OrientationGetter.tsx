@@ -62,7 +62,7 @@ export default function OrientationGetter({
       head = Math.min(head, 360 - head) * (head > 180 ? 1 : -1);
       head *= Math.PI / 180;
 
-      const alpha = parseInt(newAlpha.toFixed(0));
+      const alpha = parseInt(newAlpha.toFixed(0)) * (Math.PI / 180);
       const beta = parseInt(newBeta.toFixed(0));
       const gamma = parseInt(newGamma.toFixed(0)) * (Math.PI / 180);
       // gamma = Math.abs(gamma - originPosition.current.gamma);
@@ -73,7 +73,7 @@ export default function OrientationGetter({
         ws.current.send(
           `rotation:${
             head //(Math.min(360 - head, head) / 180) * (180 > head ? 1 : -1) * Math.PI
-          },0,0,${gamma}`
+          },${alpha},0,${gamma}`
         );
       // console.log("updateModel", parseInt(newAlpha.toFixed(0)));
 
@@ -204,16 +204,17 @@ export default function OrientationGetter({
       interval = (newTimeStamp - preTimeStamp.current) / 1000;
     preTimeStamp.current = newTimeStamp; */
 
-    const newVX = acc!.x! * interval + vX.current;
-    const newVY = acc!.y! * interval + vY.current;
-    const newVZ = acc!.z! * interval + vZ.current;
+    const newVX = accG!.x! * interval + vX.current;
+    const newVY = accG!.y! * interval + vY.current;
+    const newVZ = accG!.z! * interval + vZ.current;
+
+    const dx = ((newVX + vX.current) / 2) * interval;
+    const dy = ((newVY + vY.current) / 2) * interval;
+    const dz = ((newVZ + vZ.current) / 2) * interval;
+
     vX.current = newVX;
     vY.current = newVY;
     vZ.current = newVZ;
-
-    const dx = newVX * interval;
-    // const dy = newVY * interval;
-    const dz = newVZ * interval;
 
     // setShowDelta(status.current.toString());
     const gamma = refGamma.current;
@@ -225,8 +226,8 @@ export default function OrientationGetter({
       let deltaX =
         dz * Math.sin(gammaInRadians) + dx * Math.cos(gammaInRadians);
       deltaX *= -top;
-      ws.current.send(`position:${deltaX.toFixed(2).toString()},0,0`);
-      setShowDelta(newVX.toFixed(3).toString());
+      ws.current.send(`position:${dx.toString()},${accG!.y!.toString()},0`);
+      setShowDelta(accG!.y!.toFixed(3).toString());
       // }
     }
   }
@@ -254,8 +255,8 @@ export default function OrientationGetter({
 
   return (
     <div className="flex flex-col items-center justify-center">
-      <div>{showDelta}</div>
-      <div>{gamma}</div>
+      <div>showDelta:{showDelta}</div>
+      <div>{alpha}</div>
       <button onClick={getPermission}>click to get permission</button>
       <button onClick={handleClick}>click to send message</button>
       <button onClick={setOriginPosition}>set origin position</button>

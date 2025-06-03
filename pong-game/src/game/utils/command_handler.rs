@@ -1,7 +1,7 @@
-use bevy::{math, prelude::*};
+use bevy::prelude::*;
 use std::f32::consts::PI;
 
-use crate::{Ball, CommandDataType, LaunchState, MoveSpeedText, Racket, RacketCommandQueue};
+use crate::game::utils::{Ball, CommandDataType, LaunchState, MoveSpeedText, Racket, RacketCommandQueue,RacketTransformCommand};
 
 pub fn apply_racket_commands(
     mut query: Query<&mut Transform, (With<Racket>, Without<Ball>)>,
@@ -14,7 +14,7 @@ pub fn apply_racket_commands(
         Ok(t) => t,
         Err(_) => return, // 没有找到 Racket，跳过
     };
-    let mut queue: std::sync::MutexGuard<'_, Vec<crate::RacketTransformCommand>> =
+    let mut queue: std::sync::MutexGuard<'_, Vec<RacketTransformCommand>> =
         command_queue.0.lock().unwrap();
     for command in queue.drain(..) {
         let handler: fn(CommandDataType, &mut Transform,&mut Transform, 
@@ -50,15 +50,27 @@ pub fn handle_rotation_command(
     transform.rotation = base;
 
     transform.translation = Vec3::new(
-        0.9 + (rotation.x / 4.).abs().sin() / 6.,
-        1.0,
-        rotation.x / 4.,
+        -rotation.x.abs().cos() / 4. + 0.1, //rotation.x.abs().sin() / 2. - 0.05,
+        -0.03,
+        0. // rotation.x.abs().cos(),
     );
-    if !launch_state.launched {
-        ball_transform.translation.z = transform.translation.z + rotation.x.sin() * 0.05;
+    if rotation.x < 0. {
+        transform.translation.z += 0.05;
+    } else {
+        transform.translation.z -= 0.05;
     }
-    
-    text.0 = format!("{:.3}", rotation.x);
+    if !launch_state.launched {
+        // ball_transform.translation.z = transform.translation.z + rotation.x.sin() * 0.05;
+        transform.translation.z += ball_transform.translation.z;
+        if  ball_transform.translation.x > 0. {
+            transform.translation.x += ball_transform.translation.x;
+            transform.translation.y += ball_transform.translation.y;
+        }
+        // transform.translation += Vec3::new(0.9, 1.0, rotation.x / 4.);
+    } else {
+        transform.translation += Vec3::new(0.9, 1.0, 0.);
+    }
+    text.0 = format!("{:?}", rotation.x);
 }
 
 pub fn handle_position_command(
